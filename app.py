@@ -44,7 +44,7 @@ def main():
     st.markdown("""
     <div style="background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
         <p style="margin: 0; font-size: 14px;">
-            <strong>СТУДЕНТ:</strong> Алсади К.<br>
+            <strong>СТУДЕНТ:</strong> Алсади К. <br>
             <strong>РУКОВОДИТЕЛЬ:</strong> Киреева А.В
         </p>
     </div>
@@ -161,7 +161,7 @@ def main():
 
                 # Show raw data preview
                 with st.expander("Предварительный просмотр данных"):
-                    st.dataframe(df.head(10))
+                    st.dataframe(df, use_container_width=True)
                     st.info(f"Общее количество строк: {len(df)}")
 
                     # Debug information for CSV files
@@ -172,6 +172,83 @@ def main():
                                 sample_values = df[col].head(3).tolist()
                                 data_type = df[col].dtype
                                 st.text(f"{col}: {data_type} | Примеры: {sample_values}")
+
+                # Data editing section for uploaded files
+                st.subheader("Редактирование данных")
+                st.info("Вы можете отредактировать загруженные данные перед анализом. Столбец А/А0 будет пересчитан автоматически.")
+
+                # Prepare data for editing
+                edit_df = df.copy()
+
+                # Configure column settings for the data editor
+                column_config = {
+                    "т, мин": st.column_config.NumberColumn(
+                        "Время (мин)",
+                        help="Время в минутах",
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.4f"
+                    ),
+                    "А": st.column_config.NumberColumn(
+                        "Концентрация А",
+                        help="Концентрация А",
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.5f"
+                    ),
+                    "А0": st.column_config.NumberColumn(
+                        "Начальная концентрация А0",
+                        help="Начальная концентрация А0",
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.5f"
+                    )
+                }
+
+                # Add А/А0 column configuration if it exists
+                if 'А/А0' in edit_df.columns:
+                    column_config["А/А0"] = st.column_config.NumberColumn(
+                        "Отношение А/А0",
+                        help="Отношение А/А0 (будет пересчитано автоматически)",
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.4f",
+                        disabled=True  # Make this column read-only since it's calculated
+                    )
+
+                # Create editable data table
+                edited_df = st.data_editor(
+                    edit_df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    column_config=column_config,
+                    key="uploaded_data_editor"
+                )
+
+                # Auto-calculate А/А0 if А and А0 columns exist
+                if 'А' in edited_df.columns and 'А0' in edited_df.columns:
+                    # Create a copy to avoid modifying the original
+                    processed_edited_df = edited_df.copy()
+
+                    # Remove rows with invalid data
+                    valid_mask = (processed_edited_df['А'] > 0) & (processed_edited_df['А0'] > 0) & (processed_edited_df['т, мин'] >= 0)
+                    processed_edited_df = processed_edited_df[valid_mask]
+
+                    if not processed_edited_df.empty:
+                        # Recalculate А/А0
+                        processed_edited_df['А/А0'] = processed_edited_df['А'] / processed_edited_df['А0']
+                        processed_edited_df['А/А0'] = processed_edited_df['А/А0'].round(4)
+
+                        # Update df to use the edited and processed data
+                        df = processed_edited_df.copy()
+
+                        # Show updated preview
+                        with st.expander("Предварительный просмотр отредактированных данных"):
+                            st.dataframe(df, use_container_width=True)
+                            st.info(f"Действительных строк после редактирования: {len(df)}")
+                    else:
+                        st.warning("Нет действительных данных после редактирования. Убедитесь, что все значения положительные.")
+                        df = None
 
             except Exception as e:
                 st.error(f"Ошибка чтения файла: {str(e)}")
