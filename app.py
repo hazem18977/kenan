@@ -155,6 +155,34 @@ def main():
                         st.error(f"Лист '{selected_sheet}' не содержит требуемых данных. Попробуйте выбрать другой лист.")
                     return
 
+                # Check if А0 column is missing and auto-calculate if needed
+                auto_a0_calculated = False
+                if 'А0' not in df.columns:
+                    if 'А' in df.columns and len(df) > 0:
+                        # Convert А column to numeric first
+                        df['А'] = pd.to_numeric(df['А'], errors='coerce')
+
+                        # Find the first valid А value
+                        valid_a_mask = (df['А'] > 0) & (~df['А'].isna())
+                        if valid_a_mask.any():
+                            first_a_value = df.loc[valid_a_mask, 'А'].iloc[0]
+                            df['А0'] = first_a_value
+                            auto_a0_calculated = True
+                            st.success(f"Автоопределение: А0 = {first_a_value:.5f} (из первого значения А)")
+                            st.info("Столбец А0 отсутствовал в файле и был автоматически рассчитан из первого значения концентрации А")
+                        else:
+                            st.error("Не удалось определить А0: нет действительных значений в столбце А")
+                            return
+                    else:
+                        st.error("Не удалось определить А0: столбец А отсутствует или файл пуст")
+                        return
+
+                # Auto-calculate А/А0 if missing
+                if 'А/А0' not in df.columns and 'А' in df.columns and 'А0' in df.columns:
+                    df['А/А0'] = df['А'] / df['А0']
+                    if auto_a0_calculated:
+                        st.info("Столбец А/А0 был автоматически рассчитан")
+
                 st.success("Файл успешно загружен!")
                 if file_extension != 'csv' and len(sheet_names) > 1:
                     st.info(f"Анализируется лист: **{selected_sheet}**")
@@ -175,10 +203,23 @@ def main():
 
                 # Data editing section for uploaded files
                 st.subheader("Редактирование данных")
-                st.info("Вы можете отредактировать загруженные данные перед анализом. Столбец А/А0 будет пересчитан автоматически.")
 
-                # Prepare data for editing
+                # Show different messages based on whether А0 was auto-calculated
+                if auto_a0_calculated:
+                    st.info("Вы можете отредактировать загруженные данные перед анализом. А0 был автоматически определен из первого значения А и будет обновляться при изменении первой строки. Столбец А/А0 будет пересчитан автоматически.")
+                else:
+                    st.info("Вы можете отредактировать загруженные данные перед анализом. Первое значение в столбце А будет автоматически использовано как начальная концентрация А0 для всех расчетов. Столбец А/А0 будет пересчитан автоматически.")
+
+                # Initialize session state for uploaded file editing
+                if 'uploaded_first_a_value' not in st.session_state:
+                    st.session_state.uploaded_first_a_value = None
+
+                # Prepare data for editing (remove А0 column from display)
                 edit_df = df.copy()
+                display_columns = ['т, мин', 'А']
+
+                # Create display dataframe with only the columns we want to show
+                edit_df_display = edit_df[display_columns].copy()
 
                 # Configure column settings for the data editor
                 column_config = {
@@ -191,64 +232,61 @@ def main():
                     ),
                     "А": st.column_config.NumberColumn(
                         "Концентрация А",
-                        help="Концентрация А",
-                        min_value=0.0,
-                        step=0.0001,
-                        format="%.5f"
-                    ),
-                    "А0": st.column_config.NumberColumn(
-                        "Начальная концентрация А0",
-                        help="Начальная концентрация А0",
+                        help="Концентрация А (первое значение используется как А0)",
                         min_value=0.0,
                         step=0.0001,
                         format="%.5f"
                     )
                 }
 
-                # Add А/А0 column configuration if it exists
-                if 'А/А0' in edit_df.columns:
-                    column_config["А/А0"] = st.column_config.NumberColumn(
-                        "Отношение А/А0",
-                        help="Отношение А/А0 (будет пересчитано автоматически)",
-                        min_value=0.0,
-                        step=0.0001,
-                        format="%.4f",
-                        disabled=True  # Make this column read-only since it's calculated
-                    )
-
-                # Create editable data table
+                # Create editable data table (only show т, мин and А columns)
                 edited_df = st.data_editor(
-                    edit_df,
+                    edit_df_display,
                     use_container_width=True,
                     num_rows="dynamic",
                     column_config=column_config,
                     key="uploaded_data_editor"
                 )
 
-                # Auto-calculate А/А0 if А and А0 columns exist
-                if 'А' in edited_df.columns and 'А0' in edited_df.columns:
+                # Auto-calculate А/А0 if А column exists
+                if 'А' in edited_df.columns:
                     # Create a copy to avoid modifying the original
                     processed_edited_df = edited_df.copy()
 
-                    # Remove rows with invalid data
-                    valid_mask = (processed_edited_df['А'] > 0) & (processed_edited_df['А0'] > 0) & (processed_edited_df['т, мин'] >= 0)
-                    processed_edited_df = processed_edited_df[valid_mask]
+                    # Apply auto-population logic: if first A value exists, populate all A0 values
+                    if len(processed_edited_df) > 0 and processed_edited_df.iloc[0]['А'] > 0:
+                        first_a_value = processed_edited_df.iloc[0]['А']
+                        # Auto-populate all A0 values with the first A value
+                        processed_edited_df['А0'] = first_a_value
 
-                    if not processed_edited_df.empty:
-                        # Recalculate А/А0
-                        processed_edited_df['А/А0'] = processed_edited_df['А'] / processed_edited_df['А0']
-                        processed_edited_df['А/А0'] = processed_edited_df['А/А0'].round(4)
+                        # Show auto-population notification
+                        if first_a_value != st.session_state.uploaded_first_a_value:
+                            st.session_state.uploaded_first_a_value = first_a_value
+                            st.success(f"Автоопределение: А0 = {first_a_value:.5f} (из первого значения А)")
 
-                        # Update df to use the edited and processed data
-                        df = processed_edited_df.copy()
+                        # Remove rows with invalid data
+                        valid_mask = (processed_edited_df['А'] > 0) & (processed_edited_df['А0'] > 0) & (processed_edited_df['т, мин'] >= 0)
+                        processed_edited_df = processed_edited_df[valid_mask]
 
-                        # Show updated preview
-                        with st.expander("Предварительный просмотр отредактированных данных"):
-                            st.dataframe(df, use_container_width=True)
-                            st.info(f"Действительных строк после редактирования: {len(df)}")
-                    else:
-                        st.warning("Нет действительных данных после редактирования. Убедитесь, что все значения положительные.")
-                        df = None
+                        if not processed_edited_df.empty:
+                            # Recalculate А/А0
+                            processed_edited_df['А/А0'] = processed_edited_df['А'] / processed_edited_df['А0']
+                            processed_edited_df['А/А0'] = processed_edited_df['А/А0'].round(4)
+
+                            # Update df to use the edited and processed data
+                            df = processed_edited_df.copy()
+
+                            # Show updated preview
+                            with st.expander("Предварительный просмотр отредактированных данных"):
+                                # Show only visible columns plus А/А0
+                                display_data = df[['т, мин', 'А', 'А/А0']].copy()
+                                st.dataframe(display_data, use_container_width=True)
+                                st.info(f"Действительных строк после редактирования: {len(df)}")
+                                if len(processed_edited_df) > 0 and processed_edited_df.iloc[0]['А'] > 0:
+                                    st.info(f"Автоопределение активно: А0 = {processed_edited_df.iloc[0]['А']:.5f} для всех расчетов")
+                        else:
+                            st.warning("Нет действительных данных после редактирования. Убедитесь, что все значения положительные.")
+                            df = None
 
             except Exception as e:
                 st.error(f"Ошибка чтения файла: {str(e)}")
@@ -272,7 +310,7 @@ def main():
             'А': [0.0]
         })
 
-        st.info("Введите данные в таблицу ниже. Столбец А/А0 будет рассчитан автоматически.")
+        st.info("Введите данные в таблицу ниже. Первое значение в столбце А будет автоматически использовано как начальная концентрация А0 для всех расчетов. Столбец А/А0 будет рассчитан автоматически.")
 
         # Data editor
         edited_data = st.data_editor(
@@ -289,19 +327,13 @@ def main():
                 ),
                 "А": st.column_config.NumberColumn(
                     "Концентрация А",
-                    help="Концентрация А",
-                    min_value=0.0,
-                    step=0.0001,
-                    format="%.5f"
-                ),
-                "А0": st.column_config.NumberColumn(
-                    "Начальная концентрация А0",
-                    help="Начальная концентрация А0",
+                    help="Концентрация А (первое значение используется как А0)",
                     min_value=0.0,
                     step=0.0001,
                     format="%.5f"
                 )
-            }
+            },
+            key="manual_data_editor"
         )
 
         # Auto-calculate A/A0 ratios and show preview
