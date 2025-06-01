@@ -305,9 +305,24 @@ def main():
         )
 
         # Auto-calculate A/A0 ratios and show preview
-        if not edited_data.empty and 'А' in edited_data.columns and 'А0' in edited_data.columns:
-            # Remove rows with zero or negative values
-            valid_data = edited_data[(edited_data['А'] > 0) & (edited_data['А0'] > 0) & (edited_data['т, мин'] >= 0)]
+        if not edited_data.empty and 'А' in edited_data.columns:
+            # Apply auto-population logic: use first A value as A0 for all calculations
+            processed_data = edited_data.copy()
+
+            # Get the first valid A value (non-zero) from the first row
+            first_a_value = None
+            if len(processed_data) > 0 and processed_data.iloc[0]['А'] > 0:
+                first_a_value = processed_data.iloc[0]['А']
+                # Add А0 column internally for calculations
+                processed_data['А0'] = first_a_value
+
+                # Show auto-determination info
+                if first_a_value != st.session_state.first_a_value:
+                    st.session_state.first_a_value = first_a_value
+                    st.success(f"Автоопределение: А0 = {first_a_value:.5f} (из первого значения А)")
+
+                # Remove rows with zero or negative values
+                valid_data = processed_data[(processed_data['А'] > 0) & (processed_data['А0'] > 0) & (processed_data['т, мин'] >= 0)]
 
                 if not valid_data.empty:
                     # Calculate A/A0 ratios
@@ -321,17 +336,25 @@ def main():
                     st.dataframe(display_data, use_container_width=True)
                     st.info(f"Автоопределение активно: А0 = {first_a_value:.5f} для всех расчетов")
 
-                # Show auto-population info if applicable
-                if len(processed_data) > 0 and processed_data.iloc[0]['А'] > 0:
-                    st.success(f"Автозаполнение активно: А0 = {processed_data.iloc[0]['А']:.5f} для всех строк")
-
         # Validate manual data
         if st.button("Анализировать введенные данные", type="primary"):
             if edited_data.empty:
                 st.error("Пожалуйста, введите данные для анализа")
             else:
-                # Use the valid data with calculated A/A0
-                if not edited_data.empty and 'А' in edited_data.columns and 'А0' in edited_data.columns:
+                # Use the processed data with auto-population and calculated A/A0
+                if not edited_data.empty and 'А' in edited_data.columns:
+                    # Apply auto-population logic first
+                    processed_data = edited_data.copy()
+
+                    # Get the first valid A value (non-zero) from the first row
+                    if len(processed_data) > 0 and processed_data.iloc[0]['А'] > 0:
+                        first_a_value = processed_data.iloc[0]['А']
+                        # Auto-populate all A0 values with the first A value
+                        processed_data['А0'] = first_a_value
+                    else:
+                        st.error("Первое значение в столбце А должно быть положительным числом.")
+                        return
+
                     # Remove rows with zero or negative values
                     valid_data = processed_data[(processed_data['А'] > 0) & (processed_data['А0'] > 0) & (processed_data['т, мин'] >= 0)]
 
@@ -358,6 +381,7 @@ def main():
                                 df = valid_data.copy()
                                 st.success("Данные успешно введены!")
                                 st.info(f"Введено {len(df)} точек данных")
+                                st.info(f"Автоопределение: А0 = {first_a_value:.5f} для всех расчетов")
 
     # Process data if we have valid data (from either source)
     if df is not None and not df.empty:
