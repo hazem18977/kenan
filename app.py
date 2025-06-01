@@ -1048,20 +1048,20 @@ def main():
             # Results summary with enhanced styling and emojis
             st.markdown("""
             <div class="section-header-results">
-                <h2>🧮 Результаты моделирования</h2>
+                <h2>📋 Сводка результатов</h2>
             </div>
             """, unsafe_allow_html=True)
 
             results_summary = create_results_summary(k1, k2, mape_pfo, mape_pso, r2_pfo, r2_pso)
 
             # Display summary table
-            st.subheader("📋 Сводка результатов")
+            #st.subheader("📋 Сводка результатов")
             st.dataframe(results_summary, use_container_width=True)
 
             # Model comparison metrics with enhanced performance styling
             st.markdown("""
             <div class="section-header-results">
-                <h3>⚖️ Сравнение моделей</h3>
+                <h3>🔎 Сравнение моделей</h3>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1070,6 +1070,13 @@ def main():
                 st.markdown("### 🔵 Модель PFO")
 
                 # Enhanced performance metrics for PFO
+                st.markdown(f"""
+                <div class="performance-metric">
+                    <div class="metric-label">⚡ коэффициент k₁</div>
+                    <div class="metric-value">{abs(k1):.5f} мин⁻¹</div>
+                </div>
+                
+                """, unsafe_allow_html=True)
                 st.markdown(f"""
                 <div class="performance-metric">
                     <div class="metric-label">📊 R² Score</div>
@@ -1084,17 +1091,18 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
 
-                st.markdown(f"""
-                <div class="performance-metric">
-                    <div class="metric-label">⚡ Константа скорости k₁</div>
-                    <div class="metric-value">{abs(k1):.5f} мин⁻¹</div>
-                </div>
-                """, unsafe_allow_html=True)
+                
 
             with col2:
                 st.markdown("### 🟢 Модель PSO")
 
                 # Enhanced performance metrics for PSO
+                st.markdown(f"""
+                <div class="performance-metric">
+                    <div class="metric-label">⚡ коэффициент k₂</div>
+                    <div class="metric-value">{k2:.5f} л/(мг·мин)</div>
+                </div>
+                """, unsafe_allow_html=True)
                 st.markdown(f"""
                 <div class="performance-metric">
                     <div class="metric-label">📊 R² Score</div>
@@ -1106,13 +1114,6 @@ def main():
                 <div class="performance-metric">
                     <div class="metric-label">📈 MAPE (%)</div>
                     <div class="metric-value">{mape_pso:.2f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                st.markdown(f"""
-                <div class="performance-metric">
-                    <div class="metric-label">⚡ Константа скорости k₂</div>
-                    <div class="metric-value">{k2:.5f} л/(мг·мин)</div>
                 </div>
                 """, unsafe_allow_html=True)
 
