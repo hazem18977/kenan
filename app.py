@@ -175,18 +175,10 @@ def main():
 
                 # Data editing section for uploaded files
                 st.subheader("Редактирование данных")
-                st.info("Вы можете отредактировать загруженные данные перед анализом. Первое значение в столбце А будет автоматически использовано как начальная концентрация А0 для всех расчетов. Столбец А/А0 будет пересчитан автоматически.")
+                st.info("Вы можете отредактировать загруженные данные перед анализом. Столбец А/А0 будет пересчитан автоматически.")
 
-                # Initialize session state for uploaded file editing
-                if 'uploaded_first_a_value' not in st.session_state:
-                    st.session_state.uploaded_first_a_value = None
-
-                # Prepare data for editing (remove А0 column from display if present)
+                # Prepare data for editing
                 edit_df = df.copy()
-                display_columns = ['т, мин', 'А']
-
-                # Create display dataframe with only the columns we want to show
-                edit_df_display = edit_df[display_columns].copy()
 
                 # Configure column settings for the data editor
                 column_config = {
@@ -199,61 +191,64 @@ def main():
                     ),
                     "А": st.column_config.NumberColumn(
                         "Концентрация А",
-                        help="Концентрация А (первое значение используется как А0)",
+                        help="Концентрация А",
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.5f"
+                    ),
+                    "А0": st.column_config.NumberColumn(
+                        "Начальная концентрация А0",
+                        help="Начальная концентрация А0",
                         min_value=0.0,
                         step=0.0001,
                         format="%.5f"
                     )
                 }
 
+                # Add А/А0 column configuration if it exists
+                if 'А/А0' in edit_df.columns:
+                    column_config["А/А0"] = st.column_config.NumberColumn(
+                        "Отношение А/А0",
+                        help="Отношение А/А0 (будет пересчитано автоматически)",
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.4f",
+                        disabled=True  # Make this column read-only since it's calculated
+                    )
+
                 # Create editable data table
                 edited_df = st.data_editor(
-                    edit_df_display,
+                    edit_df,
                     use_container_width=True,
                     num_rows="dynamic",
                     column_config=column_config,
                     key="uploaded_data_editor"
                 )
 
-                # Auto-calculate А/А0 if А column exists
-                if 'А' in edited_df.columns:
+                # Auto-calculate А/А0 if А and А0 columns exist
+                if 'А' in edited_df.columns and 'А0' in edited_df.columns:
                     # Create a copy to avoid modifying the original
                     processed_edited_df = edited_df.copy()
 
-                    # Apply auto-population logic: if first A value exists, populate all A0 values
-                    if len(processed_edited_df) > 0 and processed_edited_df.iloc[0]['А'] > 0:
-                        first_a_value = processed_edited_df.iloc[0]['А']
-                        # Auto-populate all A0 values with the first A value
-                        processed_edited_df['А0'] = first_a_value
+                    # Remove rows with invalid data
+                    valid_mask = (processed_edited_df['А'] > 0) & (processed_edited_df['А0'] > 0) & (processed_edited_df['т, мин'] >= 0)
+                    processed_edited_df = processed_edited_df[valid_mask]
 
-                        # Show auto-population notification
-                        if first_a_value != st.session_state.uploaded_first_a_value:
-                            st.session_state.uploaded_first_a_value = first_a_value
-                            st.success(f"Автоопределение: А0 = {first_a_value:.5f} (из первого значения А)")
+                    if not processed_edited_df.empty:
+                        # Recalculate А/А0
+                        processed_edited_df['А/А0'] = processed_edited_df['А'] / processed_edited_df['А0']
+                        processed_edited_df['А/А0'] = processed_edited_df['А/А0'].round(4)
 
-                        # Remove rows with invalid data
-                        valid_mask = (processed_edited_df['А'] > 0) & (processed_edited_df['А0'] > 0) & (processed_edited_df['т, мин'] >= 0)
-                        processed_edited_df = processed_edited_df[valid_mask]
+                        # Update df to use the edited and processed data
+                        df = processed_edited_df.copy()
 
-                        if not processed_edited_df.empty:
-                            # Recalculate А/А0
-                            processed_edited_df['А/А0'] = processed_edited_df['А'] / processed_edited_df['А0']
-                            processed_edited_df['А/А0'] = processed_edited_df['А/А0'].round(4)
-
-                            # Update df to use the edited and processed data
-                            df = processed_edited_df.copy()
-
-                            # Show updated preview
-                            with st.expander("Предварительный просмотр отредактированных данных"):
-                                # Show only visible columns plus А/А0
-                                display_data = df[['т, мин', 'А', 'А/А0']].copy()
-                                st.dataframe(display_data, use_container_width=True)
-                                st.info(f"Действительных строк после редактирования: {len(df)}")
-                                if len(processed_edited_df) > 0 and processed_edited_df.iloc[0]['А'] > 0:
-                                    st.info(f"Автоопределение активно: А0 = {processed_edited_df.iloc[0]['А']:.5f} для всех расчетов")
-                        else:
-                            st.warning("Нет действительных данных после редактирования. Убедитесь, что все значения положительные.")
-                            df = None
+                        # Show updated preview
+                        with st.expander("Предварительный просмотр отредактированных данных"):
+                            st.dataframe(df, use_container_width=True)
+                            st.info(f"Действительных строк после редактирования: {len(df)}")
+                    else:
+                        st.warning("Нет действительных данных после редактирования. Убедитесь, что все значения положительные.")
+                        df = None
 
             except Exception as e:
                 st.error(f"Ошибка чтения файла: {str(e)}")
@@ -277,7 +272,7 @@ def main():
             'А': [0.0]
         })
 
-        st.info("Введите данные в таблицу ниже. Первое значение в столбце А будет автоматически использовано как начальная концентрация А0 для всех расчетов. Столбец А/А0 будет рассчитан автоматически.")
+        st.info("Введите данные в таблицу ниже. Столбец А/А0 будет рассчитан автоматически.")
 
         # Data editor
         edited_data = st.data_editor(
@@ -294,34 +289,25 @@ def main():
                 ),
                 "А": st.column_config.NumberColumn(
                     "Концентрация А",
-                    help="Концентрация А (первое значение используется как А0)",
+                    help="Концентрация А",
+                    min_value=0.0,
+                    step=0.0001,
+                    format="%.5f"
+                ),
+                "А0": st.column_config.NumberColumn(
+                    "Начальная концентрация А0",
+                    help="Начальная концентрация А0",
                     min_value=0.0,
                     step=0.0001,
                     format="%.5f"
                 )
-            },
-            key="manual_data_editor"
+            }
         )
 
         # Auto-calculate A/A0 ratios and show preview
-        if not edited_data.empty and 'А' in edited_data.columns:
-            # Apply auto-population logic: use first A value as A0 for all calculations
-            processed_data = edited_data.copy()
-
-            # Get the first valid A value (non-zero) from the first row
-            first_a_value = None
-            if len(processed_data) > 0 and processed_data.iloc[0]['А'] > 0:
-                first_a_value = processed_data.iloc[0]['А']
-                # Add А0 column internally for calculations
-                processed_data['А0'] = first_a_value
-
-                # Show auto-determination info
-                if first_a_value != st.session_state.first_a_value:
-                    st.session_state.first_a_value = first_a_value
-                    st.success(f"Автоопределение: А0 = {first_a_value:.5f} (из первого значения А)")
-
-                # Remove rows with zero or negative values
-                valid_data = processed_data[(processed_data['А'] > 0) & (processed_data['А0'] > 0) & (processed_data['т, мин'] >= 0)]
+        if not edited_data.empty and 'А' in edited_data.columns and 'А0' in edited_data.columns:
+            # Remove rows with zero or negative values
+            valid_data = edited_data[(edited_data['А'] > 0) & (edited_data['А0'] > 0) & (edited_data['т, мин'] >= 0)]
 
                 if not valid_data.empty:
                     # Calculate A/A0 ratios
@@ -335,25 +321,17 @@ def main():
                     st.dataframe(display_data, use_container_width=True)
                     st.info(f"Автоопределение активно: А0 = {first_a_value:.5f} для всех расчетов")
 
+                # Show auto-population info if applicable
+                if len(processed_data) > 0 and processed_data.iloc[0]['А'] > 0:
+                    st.success(f"Автозаполнение активно: А0 = {processed_data.iloc[0]['А']:.5f} для всех строк")
+
         # Validate manual data
         if st.button("Анализировать введенные данные", type="primary"):
             if edited_data.empty:
                 st.error("Пожалуйста, введите данные для анализа")
             else:
-                # Use the processed data with auto-population and calculated A/A0
-                if not edited_data.empty and 'А' in edited_data.columns:
-                    # Apply auto-population logic first
-                    processed_data = edited_data.copy()
-
-                    # Get the first valid A value (non-zero) from the first row
-                    if len(processed_data) > 0 and processed_data.iloc[0]['А'] > 0:
-                        first_a_value = processed_data.iloc[0]['А']
-                        # Auto-populate all A0 values with the first A value
-                        processed_data['А0'] = first_a_value
-                    else:
-                        st.error("Первое значение в столбце А должно быть положительным числом.")
-                        return
-
+                # Use the valid data with calculated A/A0
+                if not edited_data.empty and 'А' in edited_data.columns and 'А0' in edited_data.columns:
                     # Remove rows with zero or negative values
                     valid_data = processed_data[(processed_data['А'] > 0) & (processed_data['А0'] > 0) & (processed_data['т, мин'] >= 0)]
 
@@ -380,7 +358,6 @@ def main():
                                 df = valid_data.copy()
                                 st.success("Данные успешно введены!")
                                 st.info(f"Введено {len(df)} точек данных")
-                                st.info(f"Автоопределение: А0 = {first_a_value:.5f} для всех расчетов")
 
     # Process data if we have valid data (from either source)
     if df is not None and not df.empty:
