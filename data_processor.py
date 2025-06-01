@@ -12,7 +12,8 @@ from io import StringIO
 def validate_data_structure(df: pd.DataFrame) -> Tuple[bool, str]:
     """
     Validate that the data has the required structure.
-    А/А0 column is optional and will be calculated if missing.
+    А0 and А/А0 columns are optional and will be calculated if missing.
+    А0 will be auto-determined from the first А value if not present.
 
     Args:
         df: DataFrame to validate
@@ -20,8 +21,8 @@ def validate_data_structure(df: pd.DataFrame) -> Tuple[bool, str]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    required_columns = ['т, мин', 'А', 'А0']
-    optional_columns = ['А/А0']
+    required_columns = ['т, мин', 'А']
+    optional_columns = ['А0', 'А/А0']
 
     if df.empty:
         return False, "Файл пуст"
@@ -65,6 +66,7 @@ def convert_european_decimal(value):
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocess the kinetic data by cleaning and calculating derived columns.
+    Automatically calculates А0 from first А value if missing.
     Automatically calculates А/А0 if missing.
     Enhanced to handle European decimal formats.
 
@@ -90,6 +92,21 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
                 original_values = df[col][nan_mask]
                 converted_values = original_values.apply(convert_european_decimal)
                 processed_df.loc[nan_mask, col] = converted_values
+
+    # Auto-populate А0 column if missing or if it exists but needs to be standardized
+    if 'А0' not in processed_df.columns or processed_df['А0'].isna().all():
+        # Use the first valid А value as А0 for all rows
+        if len(processed_df) > 0 and 'А' in processed_df.columns:
+            # Find the first valid (non-NaN, positive) А value
+            valid_a_mask = (processed_df['А'] > 0) & (~processed_df['А'].isna())
+            if valid_a_mask.any():
+                first_a_value = processed_df.loc[valid_a_mask, 'А'].iloc[0]
+                processed_df['А0'] = first_a_value
+            else:
+                # No valid А values found
+                processed_df['А0'] = np.nan
+        else:
+            processed_df['А0'] = np.nan
 
     # Calculate А/А0 if missing or convert to numeric if present
     if 'А/А0' not in processed_df.columns:
